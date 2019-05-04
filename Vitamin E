@@ -1,0 +1,155 @@
+# Import raw data to QIIME artifacts
+$ qiime tools import \ 
+--type 'SampleData[PairedEndSequencesWithQuality]'\ 
+--input-path DSS_sequences \
+--input-format CasavaOneEightSingleLanePerSampleDirFmt\
+--output-path DSS_demux-paired-end.qza 
+# Denoise
+$ qiime dada2 denoise-paired \
+  --i-demultiplexed-seqs DSS_demux-paired-end.qza \
+  --p-trim-left-f 4 \
+  --p-trim-left-r 4 \
+  --p-trunc-len-f 251 \
+  --p-trunc-len-r 239 \
+  --o-table qiime_out/table.qza \
+  --o-representative-sequences qiime_out/rep-seqs.qza \
+  --o-denoising-stats qiime_out/denoising-stats.qza
+$ qiime feature-table summarize \
+  --i-table qiime_out/table.qza \
+  --o-visualization qiime_out/table.qzv \
+  --m-sample-metadata-file DSS_metadata.tsv
+$ qiime feature-table tabulate-seqs \
+  --i-data qiime_out/rep-seqs.qza \
+  --o-visualization qiime_out/rep-seqs.qzv
+$ qiime metadata tabulate \
+  --m-input-file qiime_out/denoising-stats.qza \
+  --o-visualization qiime_out/denoising-stats.qzv
+$ qiime phylogeny align-to-tree-mafft-fasttree \
+  --i-sequences qiime_out/rep-seqs.qza \
+  --o-alignment qiime_out/aligned-rep-seqs.qza \
+  --o-masked-alignment qiime_out/masked-aligned-rep-seqs.qza \
+  --o-tree qiime_out/unrooted-tree.qza \
+  --o-rooted-tree qiime_out/rooted-tree.qza
+$ qiime feature-table summarize \
+--i-table qiime_out/table.qza \
+--o-visualization qiime_out/table.qzv \ 
+--m-sample-metadata-file DSS_metadata.tsv \
+$ qiime feature-table tabulate-seqs \
+--i-data qiime_out/rep-seqs.qza \
+--o-visualization qiime_out/rep-seqs.qzv \
+$ qiime metadata tabulate \
+--m-input-file qiime_out/denoising-stats.qza \
+--o-visualization qiime_out/denoising-stats.qzv \
+$ qiime phylogeny align-to-tree-mafft-fasttree \
+--i-sequences qiime_out/rep-seqs.qza \
+--o-alignment qiime_out/aligned-rep-seqs.qza \
+--o-masked-alignment qiime_out/masked-aligned-rep-seqs.qza \
+--o-tree qiime_out/unrooted-tree.qza \
+--o-rooted-tree qiime_out/rooted-tree.qza
+# Deciding the sequencing depth
+$ qiime diversity alpha-rarefaction \
+  --i-table table.qza \
+  --i-phylogeny rooted-tree.qza \
+  --p-max-depth 21250 \
+  --m-metadata-file ../DSS_metadata.tsv \
+  --o-visualization alpha-rarefaction.qzv
+# Core diversity analyses
+$ qiime diversity core-metrics-phylogenetic \
+  --i-phylogeny rooted-tree.qza \
+  --i-table table.qza \
+  --p-sampling-depth 21250 \
+  --m-metadata-file ../DSS_metadata.tsv \
+$ qiime diversity alpha-group-significance \
+  --i-alpha-diversity core-metrics-results/faith_pd_vector.qza \
+  --m-metadata-file ../DSS_metadata.tsv \
+  --o-visualization core-metrics-results/faith-pd-group-significance.qzv
+$ qiime diversity alpha-group-significance \
+  --i-alpha-diversity core-metrics-results/evenness_vector.qza \
+  --m-metadata-file ../DSS_metadata.tsv \
+  --o-visualization core-metrics-results/evenness-group-significance.qzv
+$ qiime diversity alpha-group-significance \
+  --i-alpha-diversity core-metrics-results/shannon_vector.qza \
+  --m-metadata-file ../DSS_metadata.tsv \
+  --o-visualization core-metrics-results/shannon-group-significance.qzv
+$ qiime diversity alpha-group-significance \
+  --i-alpha-diversity core-metrics-results/ observed_otus_vector.qza \
+  --m-metadata-file ../DSS_metadata.tsv \
+  --o-visualization core-metrics-results/ observedOTUs-group-significance.qzv
+
+$ qiime diversity beta-group-significance \
+  --i-distance-matrix core-metrics-results/unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../DSS_metadata.tsv \
+  --m-metadata-column Treatment \
+  --o-visualization core-metrics-results/unweighted-unifrac-time-significance.qzv \
+  --p-pairwise
+
+$ qiime diversity beta-group-significance \
+  --i-distance-matrix core-metrics-results/weighted_unifrac_distance_matrix.qza \
+  --m-metadata-file ../DSS_metadata.tsv \
+  --m-metadata-column Treatment \
+  --o-visualization core-metrics-results/weighted-unifrac-time-significance.qzv \
+  --p-pairwise
+
+#Taxonomic Analysis 
+# Making the new classifier from the latest version
+$ mkdir training-feature-classifiers
+cd training-feature-classifiers
+$ qiime tools import \ 
+--type 'FeatureData[Sequence]'\ 
+--input-path SILVA_132_QIIME_release/rep_set/rep_set_16S_only/99/silva_132_99_16S.fna \
+--input-format DNAFASTAFormat \
+--output-path silva_132_99_16S.qza
+$ qiime tools import \
+ --type 'FeatureData[Taxonomy]' \
+ --input-path SILVA_132_QIIME_release/taxonomy/16S_only/99/consensus_taxonomy_7_levels.txt \
+ --source-format HeaderlessTSVTaxonomyFormat \
+ --output-path Silva99_16STaxonomy.qza
+#Extract reference reads
+$ qiime feature-classifier extract-reads \
+  --i-sequences silva_132_99_16S.qza\
+  --p-f-primer TACGGRAGGCAGCAG\
+  --p-r-primer CTACCRGGGTATCTAATCC\
+  --o-reads ref-seqs.qza
+#Train the classifier
+$ qiime feature-classifier fit-classifier-naive-bayes \
+  --i-reference-reads ref-seqs.qza \
+  --i-reference-taxonomy Silva99_16STaxonomy.qza \
+  --o-classifier new-99-otu-343F-803R-silva-classifier.qza
+#Start the taxonomy analysis
+qiime feature-classifier classify-sklearn \
+  --i-classifier new-99-otu-343F-803R-silva-classifier.qza\
+  --i-reads rep-seqs.qza \
+  --o-classification taxonomy.qza
+$ qiime metadata tabulate \
+  --m-input-file taxonomy.qza \
+  --o-visualization taxonomy.qzv
+
+#Differential abundance testing with ANCOM
+#For genus level
+$ qiime taxa collapse \
+  --i-table table.qza \
+  --i-taxonomy taxonomy.qza \
+  --p-level 6 \
+  --o-collapsed-table table-genus.qza
+$ qiime composition add-pseudocount \
+  --i-table table-genus.qza \
+  --o-composition-table comp-table-genus.qza
+$ qiime composition ancom \
+  --i-table comp-table-genus.qza \
+  --m-metadata-file ../DSS_metadata.tsv \
+  --m-metadata-column Treatment \
+  --o-visualization DSS-genus-ancom-Treatment.qzv
+#For species level
+$ qiime taxa collapse \
+  --i-table table.qza \
+  --i-taxonomy taxonomy.qza \
+  --p-level 7 \
+  --o-collapsed-table table-species.qza
+$ qiime composition add-pseudocount \
+  --i-table table-species.qza \
+  --o-composition-table comp-table-species.qza
+$ qiime composition ancom \
+  --i-table comp-table-species.qza \
+  --m-metadata-file ../DSS_metadata.tsv \
+  --m-metadata-column Treatment \
+  --o-visualization DSS-species-ancom-Treatment.qzv
